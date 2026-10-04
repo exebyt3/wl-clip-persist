@@ -72,6 +72,9 @@ pub(crate) struct Settings {
     /// If [`None`], the selection events should not be filtered by a [`Regex`].
     /// Otherwise, all mime types have to match the regex for it to be not ignored.
     pub(crate) all_mime_type_regex: Option<Regex>,
+    /// Mime types matching this regex are neither read nor re-offered,
+    /// unless that would leave no mime types at all.
+    pub(crate) skip_mime_type_regex: Option<Regex>,
     /// The number of times a reconnect to the Wayland server should be tried after an error.
     pub(crate) reconnect_tries: NumberOrInf<u64>,
     /// The delay between two reconnect tries to the Wayland server.
@@ -126,6 +129,13 @@ pub(crate) fn get_settings() -> Settings {
         .arg(
             arg!(
                 -f --"all-mime-type-regex" <REGEX> "Only handle selection events where all offered MIME types have a match for the regex"
+            )
+            .required(false)
+            .value_parser(NonEmptyStringValueParser::new()),
+        )
+        .arg(
+            arg!(
+                -s --"skip-mime-type-regex" <REGEX> "Do not read or keep offered MIME types that match the regex (unless all of them match)"
             )
             .required(false)
             .value_parser(NonEmptyStringValueParser::new()),
@@ -188,9 +198,7 @@ pub(crate) fn get_settings() -> Settings {
     let write_timeout = Duration::from_millis(*matches.get_one::<u64>("write-timeout").unwrap());
     let ignore_selection_event_on_error = matches.get_flag("ignore-event-on-error");
     let selection_size_limit_bytes = matches.get_one::<NonZeroU64>("selection-size-limit").copied();
-    let all_mime_type_regex = matches
-        .get_one::<String>("all-mime-type-regex")
-        .map(|s| match Regex::new(s) {
+    let parse_regex = |s: &String| match Regex::new(s) {
             Ok(regex) => regex,
             Err(err) => {
                 log::error!(
@@ -200,7 +208,9 @@ pub(crate) fn get_settings() -> Settings {
                 );
                 std::process::exit(1);
             }
-        });
+        };
+    let all_mime_type_regex = matches.get_one::<String>("all-mime-type-regex").map(parse_regex);
+    let skip_mime_type_regex = matches.get_one::<String>("skip-mime-type-regex").map(parse_regex);
     let reconnect_tries = *matches.get_one::<NumberOrInf<u64>>("reconnect-tries").unwrap();
     let reconnect_delay = Duration::from_millis(*matches.get_one::<u64>("reconnect-delay").unwrap());
     let force_protocol = matches.get_one::<ClipboardProtocol>("force-protocol").copied();
@@ -213,6 +223,7 @@ pub(crate) fn get_settings() -> Settings {
         ignore_selection_event_on_error,
         selection_size_limit_bytes,
         all_mime_type_regex,
+        skip_mime_type_regex,
         reconnect_tries,
         reconnect_delay,
         force_protocol,

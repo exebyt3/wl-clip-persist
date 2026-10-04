@@ -895,6 +895,31 @@ fn create_pipes_for_mime_types<DataControl: DataControlV1>(
         });
     }
 
+    if let Some(regex) = settings.skip_mime_type_regex.as_ref() {
+        // Reading every offered format can be expensive: e.g. Qt encodes an image
+        // into each one (AVIF, HEIC, JXL, ...) on its UI thread when it is requested.
+        let skip = |mime_type: &Rc<Box<CStr>>| {
+            mime_type
+                .to_str()
+                .is_ok_and(|mime_type| regex.is_match(mime_type).unwrap_or(false))
+        };
+
+        if !request_mime_types.iter().all(skip) {
+            request_mime_types.retain(|mime_type| {
+                let skipped = skip(mime_type);
+                if skipped {
+                    log::trace!(
+                        target: &log_seat_target(seat_name),
+                        "Current {} selection event: skipping mime type {:?}: matches skip regex",
+                        selection_type.get_clipboard_type_str(false),
+                        mime_type,
+                    );
+                }
+                !skipped
+            });
+        }
+    }
+
     // Start with creating the pipes and creating the data for each mime type
     let mut mime_types_and_pipes = Vec::with_capacity(request_mime_types.len());
 
